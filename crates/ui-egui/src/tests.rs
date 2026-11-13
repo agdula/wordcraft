@@ -692,7 +692,7 @@ fn start_screen_shows_file_home_and_esc_leaves_no_document() {
     for id in ["format.bold", "text.insert", "file.save", "file.saveAs", "file.print", "edit.paste", "insert.table", "ui.print"] {
         assert!(!widgets::enabled(a, id), "{id} is off with no document");
     }
-    for id in ["file.new", "file.open", "ui.backstage", "ui.tab", "ui.discord", "file.options", "ui.theme", "ui.statusCount"] {
+    for id in ["file.new", "file.open", "ui.backstage", "ui.tab", "file.options", "ui.theme", "ui.statusCount"] {
         assert!(widgets::enabled(a, id), "{id} works with no document");
     }
     assert!(!chrome::qat_enabled(a, "file.save"));
@@ -7536,4 +7536,15 @@ fn focus_hides_the_ribbon_and_escape_brings_it_back() {
     h.step();
     h.step();
     assert!(h.state().session.view.read_mode && shown(&h, "Focus"), "Immersive Reader keeps the status bar");
+}
+
+#[test]
+fn personal_title_bar_has_no_account_or_social_button() {
+    let mut a = app();
+    a.integrated_titlebar = true;
+    let mut h = harness(a);
+    h.run_steps(4);
+    assert!(h.query_by_label("Account").is_none());
+    assert!(h.query_by_label("Discord").is_none());
+    assert!(h.state_mut().run("ui.discord", json!({})).is_err());
 }

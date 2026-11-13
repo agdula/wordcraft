@@ -155,21 +155,16 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                for (label, id) in [("About", "about"), ("Discord community", "discord")] {
-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
-                    if resp.hovered() {
-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
-                    }
-                    let at = pos2(crate::rtl::lead_x(rtl, r, 22.0), r.center().y);
-                    ui.painter().text(at, crate::rtl::lead_center(rtl), tl!(label), regular(13.0), egui::Color32::WHITE);
-                    if resp.clicked() {
-                        if id == "discord" {
-                            let _ = app.run("ui.discord", json!({}));
-                        } else {
-                            app.dialog = crate::dialogs::Dialog::open("about", app);
-                        }
-                    }
+                let label = "About";
+                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
+                if resp.hovered() {
+                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                }
+                let at = pos2(crate::rtl::lead_x(rtl, r, 22.0), r.center().y);
+                ui.painter().text(at, crate::rtl::lead_center(rtl), tl!(label), regular(13.0), egui::Color32::WHITE);
+                if resp.clicked() {
+                    app.dialog = crate::dialogs::Dialog::open("about", app);
                 }
             });
         });
