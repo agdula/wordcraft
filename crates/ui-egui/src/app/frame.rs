@@ -1,8 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use super::file_browser;
 use super::{
-    WordApp, backstage, canvas, chrome, colors, content_controls, dialogs, documents, keys, now_ms, panes, read_aloud, ribbon, theme, updates_ui,
-    zotero,
+    WordApp, backstage, canvas, chrome, colors, content_controls, dialogs, documents, keys, now_ms, panes, read_aloud, ribbon, theme, zotero,
 };
 
 impl WordApp {
@@ -98,7 +97,6 @@ impl WordApp {
         if moved(self) {
             return;
         }
-        updates_ui::show(self, ctx);
         #[cfg(not(target_arch = "wasm32"))]
         file_browser::show(self, ctx);
         colors::show(self, ctx);
