@@ -21,3 +21,12 @@ workflow. The application does not start a release-check worker, display update
 popups, open update links, or replace its executable. Legacy host methods remain
 as no-ops. Keep this policy when merging upstream changes; enabling an in-app
 updater could replace the reviewed build and discard local customizations.
+
+## Verified Windows distribution
+
+Windows packaging requires `CRAFT_CENTRAL_BUILD_MANIFEST`, with a successful
+`personal.centralupdates.*` build at the exact current source revision and matching
+SHA-256 hashes of both executables. Never distribute an upstream MSI or reuse
+executables from an unrelated build: they can restore the upstream updater.
+The central workflow also extracts the resulting MSI and ZIP and compares their
+executables with this manifest. Keep this gate across upstream merges.

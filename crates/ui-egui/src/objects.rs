@@ -354,11 +354,34 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         });
         return true;
     }
-    let grabbed = grab_at(app, layout, pages, scale, at).or_else(|| pressed.then(|| behind_drag_at(app, layout, pages, scale, at)).flatten());
+    let front = grab_at(app, layout, pages, scale, at);
+    // Ctrl/⌘+click inside a linked text box follows the text box's link (its text is not grabbed
+    // as the object, so the object branch below can't see it).
+    if pressed
+        && front.is_none()
+        && ui.input(|i| i.modifiers.command && !i.modifiers.shift)
+        && let Some(link) = text_box_at(layout, pages, scale, at).and_then(|object| object_link(app, &object))
+    {
+        crate::canvas::follow_link(app, link);
+        return true;
+    }
+    // A Behind Text object reached only for dragging lies under the text: text over it keeps its click.
+    let hit = front.is_some();
+    let grabbed = front.or_else(|| pressed.then(|| behind_drag_at(app, layout, pages, scale, at)).flatten());
     let Some((object, grab)) = grabbed else { return false };
     // Double-click a SmartArt graphic (selected by the first click) to edit its text.
     if resp.double_clicked() && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some() {
         let _ = app.run("smartArt.textPane", json!({"value": true}));
+        return true;
+    }
+    // Ctrl/⌘+click on a linked picture or shape follows its link, as on linked text (#5267).
+    if pressed
+        && hit
+        && grab == Grab::Move
+        && ui.input(|i| i.modifiers.command && !i.modifiers.shift)
+        && let Some(link) = object_link(app, &object)
+    {
+        crate::canvas::follow_link(app, link);
         return true;
     }
     // Shift/Ctrl+click adds an object to the selected ones (or takes it out), for Group.
@@ -384,7 +407,15 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         let _ = app.run("select.addObject", json!({"pos": object.pos()}));
         return true;
     }
-    if pressed && grab == Grab::Move && object.behind() && behind_draggable(app, &object) {
+    // While editing a header/footer, a click on its Behind Text picture where no header/footer
+    // text covers it (the plain hit test picked it: down over the body, or clear of the text in
+    // the band) selects it, as in Word; only over text does the click defer to that text.
+    // ponytail: headers/footers only; body Behind Text pictures clear of text could do the same.
+    let clear_of_text = matches!(object.story, StoryRef::Part(_))
+        && crate::canvas::page_at(pages, layout, scale, at)
+            .and_then(|(page, x, y)| layout.object_at_in(page, x, y, EDGE / scale.max(0.01), object.story))
+            .is_some_and(|o| o.pos() == object.pos());
+    if pressed && grab == Grab::Move && object.behind() && !clear_of_text && behind_draggable(app, &object) {
         let (min, picture) = match app.session.doc.para_at(&object.pos()).and_then(|p| p.object_at(object.pos().off)) {
             Some(o) => (wordcraft_engine::cmd::objects::min_size(o), matches!(o, InlineObject::Image { .. })),
             None => return false,
@@ -408,6 +439,8 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         let pos = object.pos();
         let end = Pos { off: pos.off + OBJ.len_utf8(), ..pos.clone() };
         let _ = app.run("select.range", json!({"anchor": pos, "focus": end}));
+        // A header/footer picture repeats on every page: select the copy clicked, as `select_at` does.
+        app.session.page_hint = object.page;
         let (min, picture) = match selected(app) {
             Some((_, o)) => (wordcraft_engine::cmd::objects::min_size(o), matches!(o, InlineObject::Image { .. })),
             None => return true,
@@ -578,9 +611,8 @@ fn link_click(app: &mut WordApp, layout: &DocLayout, pages: &[Rect], scale: f32,
 /// Right-click at `at`: the picture, shape or text box under it becomes the selection (as a click
 /// would, without a drag), so the context menu acts on it. Returns whether there was one.
 pub fn select_at(app: &mut WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) -> bool {
-    if crate::canvas::editing_header_footer(app, layout) {
-        return false;
-    }
+    // While editing a header/footer, `grab_at` looks at its own objects, so its picture is picked
+    // too and the menu's Reset Picture or Wrap Text acts on it.
     let Some((object, _)) = grab_at(app, layout, pages, scale, at) else { return false };
     let pos = object.pos();
     // Already selected (alone or among several picked for Group): keep the selection.
@@ -588,7 +620,36 @@ pub fn select_at(app: &mut WordApp, layout: &DocLayout, pages: &[Rect], scale: f
         let end = Pos { off: pos.off + OBJ.len_utf8(), ..pos.clone() };
         let _ = app.run("select.range", json!({"anchor": pos, "focus": end}));
     }
+    // A header/footer picture repeats on every page: its frame belongs on the page clicked, not
+    // the one last edited.
+    app.session.page_hint = object.page;
     true
+}
+
+/// The hyperlink of the picture, shape or text box under `at` (Insert › Link with it selected,
+/// or a link read from the file), not of a frame handle: what hovering shows and Ctrl/⌘+click
+/// follows, as for linked text (#5267).
+pub fn link_at(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) -> Option<String> {
+    match grab_at(app, layout, pages, scale, at) {
+        Some((object, Grab::Move)) => object_link(app, &object),
+        Some(_) => None,
+        // Inside a text box its text is what a click reaches, but a linked text box's link
+        // comes before its text's own, as for a picture or shape.
+        None => text_box_at(layout, pages, scale, at).and_then(|object| object_link(app, &object)),
+    }
+}
+
+/// The text box whose text is under `at`, if any.
+fn text_box_at(layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) -> Option<ObjectHit> {
+    let (page, x, y) = crate::canvas::page_at(pages, layout, scale, at)?;
+    let StoryRef::Part(id) = layout.story_at(page, x, y)? else { return None };
+    layout.text_box(id, page)
+}
+
+/// The hyperlink on `object`'s character, if it has one.
+fn object_link(app: &WordApp, object: &ObjectHit) -> Option<String> {
+    let pos = object.pos();
+    app.session.doc.para_at(&pos)?.props_of_char(pos.off).link.clone().filter(|l| !l.is_empty())
 }
 
 /// What a press at `at` would grab: a handle of the shown frame, else an object of the story

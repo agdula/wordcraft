@@ -7,6 +7,13 @@
 use crate::WordApp;
 
 impl WordApp {
+    /// Central management also disables the upstream exit/install hooks.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn disable_self_update(&mut self) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn start_pending_update(&mut self) {}
+
     /// Compatibility entry point; the central manager owns update checks.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_startup_update_check(&mut self, _on: bool) {}
